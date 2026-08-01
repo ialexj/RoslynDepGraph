@@ -40,8 +40,14 @@ public sealed class TransitiveClosure
     {
         var result = new List<NodeEdges>();
 
+        var progress = new ProgressReporter();
+        Console.Error.WriteLine($"Computing transitive closure for {nodes.Count} node(s)...");
+        var idx = 0;
         foreach (var (node, directEdges) in nodes)
         {
+            idx++;
+            progress.Report(idx - 1, nodes.Count, SymbolId.Create(node.Symbol));
+
             var mergedTypes = new Dictionary<string, Dependency>();
             var mergedMembers = new Dictionary<string, Dependency>();
 
@@ -117,6 +123,7 @@ public sealed class TransitiveClosure
                 Members: mergedMembers.Values.ToList()));
         }
 
+        progress.Complete("Transitive closure complete.");
         return result;
     }
 }

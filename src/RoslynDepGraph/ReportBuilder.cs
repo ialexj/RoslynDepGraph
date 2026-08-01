@@ -71,9 +71,15 @@ public sealed class ReportBuilder
         var nodesWithDirectEdges = new List<(SymbolContext Node, NodeEdges DirectEdges)>();
         var emptyCount = 0;
 
-        foreach (var fn in surviving)
+        var progress = new ProgressReporter();
+        Console.Error.WriteLine($"Extracting dependencies for {surviving.Count} node(s)...");
+        for (var i = 0; i < surviving.Count; i++)
         {
+            var fn = surviving[i];
             var symbol = fn.Context.Symbol;
+
+            progress.Report(i, surviving.Count, fn.FullyQualifiedName);
+
             var scope = symbol.Kind == Microsoft.CodeAnalysis.SymbolKind.NamedType
                 ? ExtractionScope.RolledUpType
                 : ExtractionScope.PerMember;
@@ -93,6 +99,8 @@ public sealed class ReportBuilder
             }
             nodesWithDirectEdges.Add((fn.Context, edges));
         }
+
+        progress.Complete($"Extracted {nodesWithDirectEdges.Count} node(s) with edges.");
 
         // 6. Transitive closure (if requested).
         IReadOnlyList<NodeEdges> finalEdges;
