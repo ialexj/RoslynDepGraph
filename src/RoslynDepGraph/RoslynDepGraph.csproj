@@ -18,6 +18,7 @@
     <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="4.11.0" />
     <!-- MSBuild locator: separate version line (latest 1.x). -->
     <PackageReference Include="Microsoft.Build.Locator" Version="1.9.1" />
+    <PackageReference Include="System.CommandLine" Version="3.0.0-preview.6.26359.118" />
   </ItemGroup>
 
 </Project>
