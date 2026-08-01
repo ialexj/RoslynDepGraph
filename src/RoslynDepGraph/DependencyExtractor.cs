@@ -46,23 +46,28 @@ public sealed class DependencyExtractor
     {
         var symbol = nodeContext.Symbol;
         var project = nodeContext.Project;
-        var document = nodeContext.Document;
 
-        var model = await document.GetSemanticModelAsync(ct).ConfigureAwait(false);
-        if (model is null)
+        // Use the project's Compilation rather than a single document's SemanticModel.
+        // A type/member can be declared across multiple documents (partial classes,
+        // partial methods), and querying a SemanticModel from one document about a
+        // syntax node that lives in another throws "Syntax node is not within syntax
+        // tree". The Compilation owns every tree in the project and can hand back the
+        // correct SemanticModel per tree.
+        var compilation = await project.GetCompilationAsync(ct).ConfigureAwait(false);
+        if (compilation is null)
         {
             return ExtractedDependencies.Empty;
         }
 
-        var collector = new ReferenceCollector(model);
+        var collector = new ReferenceCollector(compilation);
 
         switch (scope)
         {
             case ExtractionScope.RolledUpType:
-                await ExtractRolledUpTypeAsync(symbol, project, model, collector, ct).ConfigureAwait(false);
+                await ExtractRolledUpTypeAsync(symbol, collector, ct).ConfigureAwait(false);
                 break;
             case ExtractionScope.PerMember:
-                await ExtractPerMemberAsync(symbol, project, model, collector, ct).ConfigureAwait(false);
+                await ExtractPerMemberAsync(symbol, collector, ct).ConfigureAwait(false);
                 break;
         }
 
@@ -70,8 +75,7 @@ public sealed class DependencyExtractor
     }
 
     private static async Task ExtractRolledUpTypeAsync(
-        ISymbol symbol, Project project, SemanticModel model,
-        ReferenceCollector collector, CancellationToken ct)
+        ISymbol symbol, ReferenceCollector collector, CancellationToken ct)
     {
         if (symbol is not INamedTypeSymbol type)
         {
@@ -109,8 +113,7 @@ public sealed class DependencyExtractor
     }
 
     private static async Task ExtractPerMemberAsync(
-        ISymbol symbol, Project project, SemanticModel model,
-        ReferenceCollector collector, CancellationToken ct)
+        ISymbol symbol, ReferenceCollector collector, CancellationToken ct)
     {
         foreach (var declRef in symbol.DeclaringSyntaxReferences)
         {
@@ -158,11 +161,11 @@ public sealed record CollectedSymbol(ISymbol Symbol, List<SourceLocation> Refere
 /// </summary>
 internal sealed class ReferenceCollector
 {
-    private readonly SemanticModel _model;
+    private readonly Compilation _compilation;
     private readonly Dictionary<string, CollectedSymbol> _types = new();
     private readonly Dictionary<string, CollectedSymbol> _members = new();
 
-    public ReferenceCollector(SemanticModel model) => _model = model;
+    public ReferenceCollector(Compilation compilation) => _compilation = compilation;
 
     public ExtractedDependencies Build() => new()
     {
@@ -172,13 +175,18 @@ internal sealed class ReferenceCollector
 
     public void Consider(SyntaxNode node)
     {
+        // Resolve the SemanticModel that owns this node's syntax tree. A node may
+        // belong to any document in the project (partial classes/methods across
+        // files), so we must look it up per-tree rather than reusing one model.
+        var model = _compilation.GetSemanticModel(node.SyntaxTree);
+
         // Type info (for expressions / type syntax).
-        var typeInfo = _model.GetTypeInfo(node, CancellationToken.None);
+        var typeInfo = model.GetTypeInfo(node, CancellationToken.None);
         AddType(typeInfo.Type, node);
         AddType(typeInfo.ConvertedType, node);
 
         // Symbol info (for identifiers / member access / invocations).
-        var symbolInfo = _model.GetSymbolInfo(node, CancellationToken.None);
+        var symbolInfo = model.GetSymbolInfo(node, CancellationToken.None);
         AddSymbol(symbolInfo.Symbol, node);
         foreach (var cand in symbolInfo.CandidateSymbols)
         {
