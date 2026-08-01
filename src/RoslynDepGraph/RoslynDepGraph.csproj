@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>RoslynDepGraph</RootNamespace>
+    <AssemblyName>RoslynDepGraph</AssemblyName>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RollForward>LatestMajor</RollForward>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Roslyn workspaces: pinned to the same 4.x version. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.11.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="4.11.0" />
+    <!-- MSBuild locator: separate version line (latest 1.x). -->
+    <PackageReference Include="Microsoft.Build.Locator" Version="1.9.1" />
+  </ItemGroup>
+
+</Project>
