@@ -22,4 +22,21 @@
     <ProjectReference Include="..\..\src\RoslynDepGraph\RoslynDepGraph.csproj" />
   </ItemGroup>
 
+  <!--
+    Fixture projects are copied verbatim into the bin output so tests can load
+    them via MSBuildWorkspace from AppContext.BaseDirectory regardless of the
+    current working directory. They are NOT referenced as ProjectReferences
+    (we load them through Roslyn at runtime, not compile against them).
+
+    The SDK auto-globs **\*.cs as Compile items, which would pull the fixture
+    sources (and their obj/ generated AssemblyInfo.cs) into the test assembly,
+    causing duplicate-attribute and type-collision errors. Exclude the Fixtures
+    tree from compilation explicitly.
+  -->
+  <ItemGroup>
+    <None Include="Fixtures\**\*.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\**\*.cs" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Remove="Fixtures\**" />
+  </ItemGroup>
+
 </Project>

@@ -67,37 +67,64 @@ public sealed class ReportBuilder
         }
 
         // 5. Extract + filter edges for each surviving node.
+        //
+        // Extraction is embarrassingly parallel: each node's outgoing edges are
+        // independent of every other node's, and Roslyn's Compilation/SemanticModel
+        // are thread-safe for read operations. We pre-allocate a result slot per
+        // surviving node and write by index (no locking, each index touched once),
+        // which preserves output order deterministically.
         var rollupToType = options.Granularity == Granularity.Type;
-        var nodesWithDirectEdges = new List<(SymbolContext Node, NodeEdges DirectEdges)>();
+        var slots = new NodeEdges?[surviving.Count];
         var emptyCount = 0;
+        var processed = 0;
 
         var progress = new ProgressReporter();
         Console.Error.WriteLine($"Extracting dependencies for {surviving.Count} node(s)...");
-        for (var i = 0; i < surviving.Count; i++)
-        {
-            var fn = surviving[i];
-            var symbol = fn.Context.Symbol;
-
-            progress.Report(i, surviving.Count, fn.FullyQualifiedName);
-
-            var scope = symbol.Kind == Microsoft.CodeAnalysis.SymbolKind.NamedType
-                ? ExtractionScope.RolledUpType
-                : ExtractionScope.PerMember;
-
-            var extracted = await _extractor.ExtractAsync(fn.Context, scope, ct).ConfigureAwait(false);
-            var (t, m) = DependencyFilter.ApplyEdges(
-                extracted, symbol, options.IncludeSystem, options.ExcludeSelf, rollupToType);
-
-            var edges = new NodeEdges(Types: t, Members: m);
-            if (t.Count == 0 && m.Count == 0)
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, surviving.Count),
+            new ParallelOptions
             {
-                emptyCount++;
-                if (!options.IncludeEmpty)
+                CancellationToken = ct,
+                MaxDegreeOfParallelism = Environment.ProcessorCount,
+            },
+            async (i, token) =>
+            {
+                var fn = surviving[i];
+                var symbol = fn.Context.Symbol;
+
+                var scope = symbol.Kind == Microsoft.CodeAnalysis.SymbolKind.NamedType
+                    ? ExtractionScope.RolledUpType
+                    : ExtractionScope.PerMember;
+
+                var extracted = await _extractor.ExtractAsync(fn.Context, scope, token).ConfigureAwait(false);
+                var (t, m) = DependencyFilter.ApplyEdges(
+                    extracted, symbol, options.IncludeSystem, options.ExcludeSelf, rollupToType);
+
+                var edges = new NodeEdges(Types: t, Members: m);
+
+                var done = Interlocked.Increment(ref processed);
+                progress.Report(done - 1, surviving.Count, fn.FullyQualifiedName);
+
+                if (t.Count == 0 && m.Count == 0)
                 {
-                    continue;
+                    Interlocked.Increment(ref emptyCount);
+                    if (!options.IncludeEmpty)
+                    {
+                        return;
+                    }
                 }
+
+                slots[i] = edges;
+            }).ConfigureAwait(false);
+
+        // Collect non-null slots in original order.
+        var nodesWithDirectEdges = new List<(SymbolContext Node, NodeEdges DirectEdges)>(surviving.Count);
+        for (var i = 0; i < slots.Length; i++)
+        {
+            if (slots[i] is { } edges)
+            {
+                nodesWithDirectEdges.Add((surviving[i].Context, edges));
             }
-            nodesWithDirectEdges.Add((fn.Context, edges));
         }
 
         progress.Complete($"Extracted {nodesWithDirectEdges.Count} node(s) with edges.");

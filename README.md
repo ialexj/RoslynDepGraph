@@ -55,8 +55,10 @@ Options:
                          nodes are omitted; the count of omitted nodes is reported
                          in the summary.
   --format <value>       Output format. (default: text)
-                         text - human-readable, one section per node
-                         json - machine-readable, schema version 1.1
+                         text    - human-readable, one section per node
+                         json    - machine-readable, schema version 1.1
+                         mermaid - Mermaid flowchart diagram (renderable in
+                                   GitHub/VS Code Markdown)
   -?, -h, --help         Show help and usage information.
   --version              Show version information.
 ```
@@ -119,3 +121,19 @@ A structured report (schema version `1.1`) suitable for tooling. The root object
 echoes the effective options, the analyzed source, the list of emitted nodes
 (each with its `types`/`members` edge arrays), a summary, and diagnostics. See
 [`docs/spec.md`](docs/spec.md) for the full schema.
+
+### Mermaid (`--format mermaid`)
+
+A [Mermaid](https://mermaid.js.org/) `flowchart LR` diagram, suitable for
+pasting into a fenced ` ```mermaid ` code block in GitHub, GitLab, or VS Code
+Markdown. Each emitted node becomes a node (types use a stadium shape, members a
+subroutine shape), and each outgoing edge becomes an arrow — direct edges are
+solid, transitive edges (from `--transitive`) are dashed and labelled
+`transitive`. Edge targets that were filtered out or omitted as empty still
+appear as standalone nodes so no edge is silently dropped. See
+[`docs/spec.md`](docs/spec.md) §10.3 for the full rules.
+
+```powershell
+dotnet run --project src/RoslynDepGraph -- samples/DepSample/DepSample.csproj `
+    --format mermaid
+```

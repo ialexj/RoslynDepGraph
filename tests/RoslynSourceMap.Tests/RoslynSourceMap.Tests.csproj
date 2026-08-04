@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RollForward>LatestMajor</RollForward>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="coverlet.collector" Version="6.0.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\RoslynSourceMap\RoslynSourceMap.csproj" />
+  </ItemGroup>
+
+  <!--
+    Fixture .cs files are copied verbatim into the bin output so tests can load
+    them from AppContext.BaseDirectory regardless of the current working
+    directory. They are NOT compiled into the test assembly (the SDK auto-globs
+    **\*.cs as Compile items), so exclude the Fixtures tree from compilation.
+  -->
+  <ItemGroup>
+    <None Include="Fixtures\**\*.cs" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Remove="Fixtures\**" />
+  </ItemGroup>
+
+</Project>

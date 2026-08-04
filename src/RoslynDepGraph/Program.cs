@@ -81,9 +81,12 @@ internal static class Program
             var builder = new ReportBuilder();
             var report = await builder.BuildAsync(solution, path, kind, options, ct).ConfigureAwait(false);
 
-            var output = format == OutputFormat.Json
-                ? OutputFormatter.ToJson(report)
-                : OutputFormatter.ToText(report);
+            var output = format switch
+            {
+                OutputFormat.Json => OutputFormatter.ToJson(report),
+                OutputFormat.Mermaid => OutputFormatter.ToMermaid(report),
+                _ => OutputFormatter.ToText(report),
+            };
 
             Console.Out.WriteLine(output);
             return 0;

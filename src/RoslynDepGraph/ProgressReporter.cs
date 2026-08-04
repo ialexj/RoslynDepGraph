@@ -18,6 +18,7 @@ namespace RoslynDepGraph;
 /// </summary>
 public sealed class ProgressReporter
 {
+    private readonly object _lock = new();
     private readonly bool _isInteractive;
     private readonly TimeSpan _minInterval;
     private DateTime _lastWrite;
@@ -33,6 +34,7 @@ public sealed class ProgressReporter
     /// <summary>
     /// Reports progress for the item at <paramref name="index"/> (0-based) out of
     /// <paramref name="total"/>, with a human-readable <paramref name="label"/>.
+    /// Thread-safe: may be called concurrently from parallel workers.
     /// </summary>
     public void Report(int index, int total, string label)
     {
@@ -41,42 +43,49 @@ public sealed class ProgressReporter
             return;
         }
 
-        if (_isInteractive)
+        lock (_lock)
         {
-            // In-place animation. Pad/truncate so a shorter label fully overwrites
-            // a longer previous one.
-            var text = $"[{index + 1}/{total}] {label}";
-            if (text.Length > 80)
+            if (_isInteractive)
             {
-                text = text[..77] + "...";
+                // In-place animation. Pad/truncate so a shorter label fully overwrites
+                // a longer previous one.
+                var text = $"[{index + 1}/{total}] {label}";
+                if (text.Length > 80)
+                {
+                    text = text[..77] + "...";
+                }
+                Console.Error.Write($"\r{text}".PadRight(Console.WindowWidth > 0 ? Console.WindowWidth - 1 : 80));
+                _lastWrite = DateTime.UtcNow;
+                _lastLabel = label;
+                return;
             }
-            Console.Error.Write($"\r{text}".PadRight(Console.WindowWidth > 0 ? Console.WindowWidth - 1 : 80));
-            _lastWrite = DateTime.UtcNow;
-            _lastLabel = label;
-            return;
-        }
 
-        // Redirected: throttle to one line per interval so logs don't bloat.
-        var now = DateTime.UtcNow;
-        if (now - _lastWrite < _minInterval)
-        {
-            return;
+            // Redirected: throttle to one line per interval so logs don't bloat.
+            var now = DateTime.UtcNow;
+            if (now - _lastWrite < _minInterval)
+            {
+                return;
+            }
+            _lastWrite = now;
+            Console.Error.WriteLine($"[{index + 1}/{total}] {label}");
         }
-        _lastWrite = now;
-        Console.Error.WriteLine($"[{index + 1}/{total}] {label}");
     }
 
     /// <summary>
     /// Clears the in-place animation (if any) and writes a final newline-terminated
     /// message. Safe to call in both interactive and redirected modes.
+    /// Thread-safe.
     /// </summary>
     public void Complete(string message)
     {
-        if (_isInteractive)
+        lock (_lock)
         {
-            // Overwrite the animation line, then move down.
-            Console.Error.Write("\r" + new string(' ', Console.WindowWidth > 0 ? Console.WindowWidth - 1 : 80) + "\r");
+            if (_isInteractive)
+            {
+                // Overwrite the animation line, then move down.
+                Console.Error.Write("\r" + new string(' ', Console.WindowWidth > 0 ? Console.WindowWidth - 1 : 80) + "\r");
+            }
+            Console.Error.WriteLine(message);
         }
-        Console.Error.WriteLine(message);
     }
 }

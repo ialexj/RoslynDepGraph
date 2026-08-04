@@ -1,8 +1,18 @@
 <Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/SourceMapSample/SourceMapSample.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/RoslynDepGraph/RoslynDepGraph.csproj" />
+    <Project Path="src/RoslynSourceMap/RoslynSourceMap.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/RoslynDepGraph.Tests/RoslynDepGraph.Tests.csproj" />
+    <Project Path="tests/RoslynSourceMap.Tests/RoslynSourceMap.Tests.csproj" />
+  </Folder>
+  <Folder Name="/tests/RoslynDepGraph.Tests/" />
+  <Folder Name="/tests/RoslynSourceMap.Tests/" />
+  <Folder Name="/tests/RoslynDepGraph.Tests/Fixtures/">
+    <Project Path="tests/RoslynDepGraph.Tests/Fixtures/SystemRefFixture/SystemRefFixture.csproj" />
   </Folder>
 </Solution>

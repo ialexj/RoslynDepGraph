@@ -1,6 +1,7 @@
 // Licensed to the project authors under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -37,6 +38,22 @@ public enum ExtractionScope
 public sealed class DependencyExtractor
 {
     /// <summary>
+    /// Per-project cache of the compilation task. Roslyn caches the <see cref="Compilation"/>
+    /// internally on the <see cref="Project"/>, but each <see cref="Project.GetCompilationAsync"/>
+    /// call still allocates an async state machine and does a lookup. Under parallel
+    /// extraction over thousands of nodes in the same project, this avoids that per-call
+    /// overhead by sharing a single task per project.
+    /// </summary>
+    /// <remarks>
+    /// The factory passed to <see cref="ConcurrentDictionary{TKey, TValue}.GetOrAdd"/>
+    /// may run a few times under heavy contention on first access, but each call resolves
+    /// to the same cached <see cref="Compilation"/> instance, so the only waste is a few
+    /// extra discarded <see cref="Task"/> wrappers. The cancellation token is shared
+    /// across all workers (the app's CT), so caching the task is safe.
+    /// </remarks>
+    private readonly ConcurrentDictionary<ProjectId, Task<Compilation?>> _compilationCache = new();
+
+    /// <summary>
     /// Extract dependencies for the given symbol.
     /// </summary>
     public async Task<ExtractedDependencies> ExtractAsync(
@@ -53,7 +70,7 @@ public sealed class DependencyExtractor
         // syntax node that lives in another throws "Syntax node is not within syntax
         // tree". The Compilation owns every tree in the project and can hand back the
         // correct SemanticModel per tree.
-        var compilation = await project.GetCompilationAsync(ct).ConfigureAwait(false);
+        var compilation = await GetCompilationAsync(project, ct).ConfigureAwait(false);
         if (compilation is null)
         {
             return ExtractedDependencies.Empty;
@@ -72,6 +89,18 @@ public sealed class DependencyExtractor
         }
 
         return collector.Build();
+    }
+
+    /// <summary>
+    /// Returns the <see cref="Compilation"/> for <paramref name="project"/>, cached
+    /// per project so that thousands of nodes in the same project don't each pay the
+    /// async state-machine + lookup cost of <see cref="Project.GetCompilationAsync"/>.
+    /// </summary>
+    private Task<Compilation?> GetCompilationAsync(Project project, CancellationToken ct)
+    {
+        return _compilationCache.GetOrAdd(
+            project.Id,
+            _ => project.GetCompilationAsync(ct));
     }
 
     private static async Task ExtractRolledUpTypeAsync(

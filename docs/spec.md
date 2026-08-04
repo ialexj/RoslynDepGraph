@@ -113,7 +113,7 @@ primitives, and all external/metadata symbols to appear as edge targets.
 
 ## 10. Output formats
 
-`--format text|json` (default: `text`).
+`--format text|json|mermaid` (default: `text`).
 
 ### 10.1 Text
 
@@ -209,6 +209,44 @@ Each `Dependency` (edge target):
 - JSON is emitted indented with camelCase property naming; default values are
   serialized (not omitted) so the schema shape is stable.
 
+### 10.3 Mermaid
+
+A [Mermaid](https://mermaid.js.org/) `flowchart LR` diagram suitable for
+pasting into Markdown renderers that support fenced `mermaid` code blocks
+(GitHub, GitLab, VS Code, etc.).
+
+- The first non-comment line is `flowchart LR` (left-to-right).
+- Each emitted node becomes a node:
+  - **Type** nodes use a stadium shape: `n0(["B (type, global)"])`.
+  - **Member** nodes use a subroutine shape: `n1[["M (method, global)"])`.
+  - Labels are `Name (kind, namespace)` for types and `ContainingType.Name (kind, namespace)`
+    for members (the containing type disambiguates same-named members across types).
+    An empty namespace renders as `global`.
+- **Subgraphs**: when the report contains member nodes, each containing type that
+  has at least one emitted member is rendered as a `subgraph` holding those members
+  (and the type node itself, if it is also emitted). Type nodes with no emitted
+  members stay as standalone stadium-shaped nodes. When there are no member nodes
+  at all (e.g. `--granularity type`), every node is emitted standalone (no subgraphs).
+  Subgraphs are opened and closed lazily as the containing type changes across the
+  (deterministic) node order — they are never nested. Member labels inside a
+  subgraph drop the `ContainingType.` prefix since the subgraph title already names
+  the type.
+- Each outgoing edge (types + members) becomes an arrow:
+  - Direct edges: `n0 --> n1`.
+  - Transitive edges (`direct: false`, only with `--transitive`): `n0 -.->|transitive| n1`.
+- Edge targets that are themselves emitted nodes link to that node. Edge targets
+  that are **not** emitted (filtered out by `--include`/`--exclude`, omitted as
+  empty, or external when `--include-system` is set) are rendered as standalone
+  plain-rectangle nodes (`t0["..."]`) so no edge is silently dropped.
+- Edges are deduplicated on `(source, target, direct)`: if a node references the
+  same target via both a type edge and a member edge, only one arrow is drawn.
+- Node ids are positional (`n0`, `n1`, … for emitted nodes; `t0`, `t1`, … for
+  non-emitted targets; `sg0`, `sg1`, … for subgraphs) and are assigned in report
+  order, which is deterministic (see §11). Symbol ids are not used directly
+  because they contain characters that are unsafe in Mermaid node ids.
+- The diagram is preceded by `%%` comment lines echoing the tool, source, and
+  summary counts.
+
 ## 11. CLI summary
 
 ```
@@ -222,7 +260,7 @@ Options:
   --include-system                 Allow framework/external edge targets.
   --exclude-self                   Drop sibling members + containing type (member nodes).
   --include-empty                  Emit nodes with no edges.
-  --format text|json               Default: text.
+  --format text|json|mermaid       Default: text.
   --help
 ```
 

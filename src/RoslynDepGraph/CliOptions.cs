@@ -58,7 +58,7 @@ public static class CliOptions
 
     public static readonly Option<OutputFormat> FormatOption = new("--format")
     {
-        Description = "Output format: text (default) or json.",
+        Description = "Output format: text (default), json, or mermaid.",
         DefaultValueFactory = _ => OutputFormat.Text,
         CustomParser = ParseOutputFormat,
     };
@@ -99,6 +99,7 @@ public static class CliOptions
         return value.ToLowerInvariant() switch
         {
             "json" => OutputFormat.Json,
+            "mermaid" => OutputFormat.Mermaid,
             "text" => OutputFormat.Text,
             _ => OutputFormat.Text,
         };

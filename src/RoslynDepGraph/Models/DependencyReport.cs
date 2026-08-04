@@ -6,7 +6,7 @@ using System.Collections.Generic;
 namespace RoslynDepGraph.Models;
 
 public enum Granularity { Type, Member, Both }
-public enum OutputFormat { Text, Json }
+public enum OutputFormat { Text, Json, Mermaid }
 
 public sealed record ReportOptions
 {
