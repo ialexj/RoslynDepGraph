@@ -42,10 +42,12 @@ public static class WorkspaceLoader
         };
 
         using var workspace = MSBuildWorkspace.Create(properties);
+#pragma warning disable CS0618 // 'WorkspaceFailed' is deprecated in Roslyn 5.x in favor of RegisterWorkspaceFailedHandler; the new handler runs off the UI thread by default, which is not a drop-in for this synchronous logging path.
         workspace.WorkspaceFailed += (_, e) =>
         {
             errorWriter?.WriteLine($"[workspace] {e.Diagnostic.Kind}: {e.Diagnostic.Message}");
         };
+#pragma warning restore CS0618
 
         Solution solution;
         string kind;

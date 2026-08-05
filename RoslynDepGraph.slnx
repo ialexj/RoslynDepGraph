@@ -2,15 +2,34 @@
   <Folder Name="/samples/">
     <Project Path="samples/SourceMapSample/SourceMapSample.csproj" />
   </Folder>
+  <Folder Name="/scratch/" />
   <Folder Name="/src/">
     <Project Path="src/RoslynDepGraph/RoslynDepGraph.csproj" />
+    <Project Path="src/RoslynPrune/RoslynPrune.csproj" />
     <Project Path="src/RoslynSourceMap/RoslynSourceMap.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/RoslynDepGraph.Tests/RoslynDepGraph.Tests.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/RoslynPrune.Tests.csproj" />
     <Project Path="tests/RoslynSourceMap.Tests/RoslynSourceMap.Tests.csproj" />
   </Folder>
   <Folder Name="/tests/RoslynDepGraph.Tests/" />
+  <Folder Name="/tests/RoslynPrune.Tests/" />
+  <Folder Name="/tests/RoslynPrune.Tests/Fixtures/">
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/CascadeFixture/CascadeFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/EmptyBlockNsFixture/EmptyBlockNsFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/EmptyFileFixture/EmptyFileFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/ExtensionBlockFixture/ExtensionBlockFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/FilterFixture/FilterFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/GlobalUsingFixture/GlobalUsingFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/GlobalUsingUsedInOtherFileFixture/GlobalUsingUsedInOtherFileFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/OrphanedUsingFixture/OrphanedUsingFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/PropertyAccessorFixture/PropertyAccessorFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/SelfReferenceFixture/SelfReferenceFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/UnusedMemberFixture/UnusedMemberFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/UnusedTypeFixture/UnusedTypeFixture.csproj" />
+    <Project Path="tests/RoslynPrune.Tests/Fixtures/UsingAliasFixture/UsingAliasFixture.csproj" />
+  </Folder>
   <Folder Name="/tests/RoslynSourceMap.Tests/" />
   <Folder Name="/tests/RoslynDepGraph.Tests/Fixtures/">
     <Project Path="tests/RoslynDepGraph.Tests/Fixtures/SystemRefFixture/SystemRefFixture.csproj" />

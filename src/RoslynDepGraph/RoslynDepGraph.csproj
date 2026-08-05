@@ -38,8 +38,8 @@
 
   <ItemGroup>
     <!-- Roslyn workspaces: pinned to the same 4.x version. -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.11.0" />
-    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="4.11.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="5.6.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" Version="5.6.0" />
     <!-- MSBuild locator: separate version line (latest 1.x). -->
     <PackageReference Include="Microsoft.Build.Locator" Version="1.9.1" />
     <PackageReference Include="System.CommandLine" Version="3.0.0-preview.6.26359.118" />
