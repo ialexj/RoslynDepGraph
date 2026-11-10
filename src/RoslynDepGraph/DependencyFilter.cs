@@ -22,12 +22,14 @@ public static class DependencyFilter
     /// <param name="includeSystem">If false, restrict targets to source symbols.</param>
     /// <param name="excludeSelf">If true (member nodes only), drop sibling members + containing type.</param>
     /// <param name="rollupToType">If true (granularity=type), map member-targets to their containing type.</param>
+    /// <param name="isExcluded">Matches symbols excluded from analysis and edge targets.</param>
     public static (IReadOnlyList<Dependency> Types, IReadOnlyList<Dependency> Members) ApplyEdges(
         ExtractedDependencies extracted,
         ISymbol nodeSymbol,
         bool includeSystem,
         bool excludeSelf,
-        bool rollupToType)
+        bool rollupToType,
+        Func<ISymbol, bool>? isExcluded = null)
     {
         var nodeKey = SymbolId.Create(nodeSymbol);
         var containingType = nodeSymbol.ContainingType;
@@ -47,7 +49,7 @@ public static class DependencyFilter
             var sym = collected.Symbol;
 
             // Self-edge: drop the node itself.
-            if (key == nodeKey)
+            if (key == nodeKey || isExcluded?.Invoke(sym) == true)
             {
                 continue;
             }
@@ -75,7 +77,7 @@ public static class DependencyFilter
             var sym = collected.Symbol;
 
             // Self-edge: drop the node itself.
-            if (key == nodeKey)
+            if (key == nodeKey || isExcluded?.Invoke(sym) == true)
             {
                 continue;
             }
@@ -107,7 +109,7 @@ public static class DependencyFilter
                 }
                 var targetKey = SymbolId.Create(targetType);
                 // Don't add a self-edge to the node's own type.
-                if (targetKey == nodeKey)
+                if (targetKey == nodeKey || isExcluded?.Invoke(targetType) == true)
                 {
                     continue;
                 }

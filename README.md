@@ -23,6 +23,9 @@ dotnet run --project src/RoslynDepGraph -- <path-to-csproj-or-sln> [options]
 The first positional argument is the path to the project or solution to
 analyze. Everything else is optional.
 
+Every progress update is written on its own line to stderr, preserving the full
+history in both the terminal and redirected logs. The report is written to stdout.
+
 ## Usage
 
 ```
@@ -38,9 +41,9 @@ Options:
                          both    - both views in the same report
   --include <glob>       Glob pattern to include reported nodes by fully-qualified
                          name. Repeatable; multiple patterns combine with OR.
-  --exclude <glob>       Glob pattern to exclude reported nodes by fully-qualified
-                         name. Repeatable; applied after --include and wins on
-                         conflict.
+  --exclude <glob>       Glob pattern to exclude symbols from the graph and
+                         dependency analysis by fully-qualified name. Repeatable;
+                         applied after --include and wins on conflict.
   --transitive           Compute the full transitive closure of dependencies
                          (cycle-safe). Edges only reachable transitively are
                          flagged as such in the output.
@@ -59,6 +62,7 @@ Options:
                          json    - machine-readable, schema version 1.1
                          mermaid - Mermaid flowchart diagram (renderable in
                                    GitHub/VS Code Markdown)
+                         body    - full source declarations with symbol/file/line headers
   -?, -h, --help         Show help and usage information.
   --version              Show version information.
 ```
@@ -72,9 +76,14 @@ against the symbol's fully-qualified name (`Namespace.Type` or
 - `*` matches any sequence of characters
 - `?` matches a single character
 
-Filters apply to **reported nodes only** — the symbols whose outgoing edges are
-emitted. They never affect edge targets; target visibility is controlled solely
-by `--include-system`.
+`--include` selects **reported nodes only**; dependencies outside those patterns
+can still be analyzed and appear as targets. `--exclude` removes matching symbols
+from both reported nodes and edge targets, prevents them from being queued for
+transitive analysis, and skips matching members when analyzing a rolled-up type.
+Exclusions apply with or without `--transitive`, including with `--include-system`.
+Excluding a property or event also excludes its associated accessors and backing field.
+An exact type pattern does not match its members; use `Namespace.Type*` to exclude
+both the type and its members.
 
 ## Examples
 
@@ -106,14 +115,18 @@ dotnet run --project src/RoslynDepGraph -- MySolution.sln `
     --include "MyApp.OrderService.PlaceOrder" --exclude-self --granularity member
 ```
 
+With `--granularity member --transitive`, only referenced members are followed.
+Referenced types remain edge targets, but do not cause all their members to be
+analyzed. The `type` and `both` modes retain rolled-up type expansion.
+
 ## Output
 
 ### Text (default)
 
-One section per emitted node, with edges grouped under `types:` and `members:`.
-Each edge line shows the target name, kind, namespace, and the source location(s)
-where it's referenced. A summary line gives node and edge counts, plus any
-filter/omission diagnostics.
+One section per emitted node, with edges grouped under `types:`, `methods:`,
+`properties:`, `fields:`, and `events:`. Member edges show the fully qualified
+member name; each edge line also shows its kind, namespace, and reference count.
+A summary line gives node and edge counts, plus any filter/omission diagnostics.
 
 ### JSON (`--format json`)
 
@@ -121,6 +134,40 @@ A structured report (schema version `1.1`) suitable for tooling. The root object
 echoes the effective options, the analyzed source, the list of emitted nodes
 (each with its `types`/`members` edge arrays), a summary, and diagnostics. See
 [`docs/spec.md`](docs/spec.md) for the full schema.
+
+### Body (`--format body`)
+
+Outputs each emitted symbol's full source declaration (signature and body),
+preceded by a comment with the full symbol id, file name, and inclusive 1-based line range.
+The declaration starts on the next line, with no intervening blank line:
+
+```text
+// MyApp.Service.Run(), Service.cs, 10-13
+public void Run()
+{
+    Execute();
+}
+
+```
+
+With `--granularity member`, only member declarations are printed, never their
+enclosing classes. Type nodes print full type declarations. Partial declarations
+are printed separately with their own file/line headers. Field/event variables include
+their enclosing field/event declaration. Leading comments outside a declaration
+are not included; symbols without an explicit declaration body (such as implicit
+constructors) produce no section.
+
+The usual node filters and empty-node omission apply to roots; use `--include-empty`
+to include leaf roots. With `--transitive`, output also includes each reachable
+source dependency once, including leaf dependencies and those outside the root
+filters. Member mode includes only member dependencies, never whole types; type
+mode includes only type dependencies. External symbols have no source body.
+Without `--transitive`, only emitted roots are printed.
+
+```powershell
+dotnet run --project src/RoslynDepGraph -- samples/DepSample/DepSample.csproj `
+    --format body --granularity member --include-empty
+```
 
 ### Mermaid (`--format mermaid`)
 

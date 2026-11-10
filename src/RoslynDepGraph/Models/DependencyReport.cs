@@ -6,7 +6,7 @@ using System.Collections.Generic;
 namespace RoslynDepGraph.Models;
 
 public enum Granularity { Type, Member, Both }
-public enum OutputFormat { Text, Json, Mermaid }
+public enum OutputFormat { Text, Json, Mermaid, Body }
 
 public sealed record ReportOptions
 {
@@ -43,6 +43,7 @@ public sealed record DependencyReport
     public required ReportOptions Options { get; init; }
     public required ReportSource Source { get; init; }
     public required IReadOnlyList<DependencyNode> Nodes { get; init; }
+    internal IReadOnlyList<DependencyNode> BodyDependencies { get; init; } = [];
     public required ReportSummary Summary { get; init; }
     public required IReadOnlyList<string> Diagnostics { get; init; }
 }

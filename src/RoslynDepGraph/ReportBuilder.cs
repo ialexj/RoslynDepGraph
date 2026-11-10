@@ -41,7 +41,7 @@ public sealed class ReportBuilder
         {
             foreach (var t in types)
             {
-                candidates.Add(new FilteredNode(t, FullyQualifiedName(t.Symbol)));
+                candidates.Add(new FilteredNode(t, NodeFilter.FullyQualifiedName(t.Symbol)));
             }
         }
         if (options.Granularity is Granularity.Member or Granularity.Both)
@@ -50,7 +50,7 @@ public sealed class ReportBuilder
             {
                 foreach (var m in kv.Value)
                 {
-                    candidates.Add(new FilteredNode(m, FullyQualifiedName(m.Symbol)));
+                    candidates.Add(new FilteredNode(m, NodeFilter.FullyQualifiedName(m.Symbol)));
                 }
             }
         }
@@ -66,81 +66,45 @@ public sealed class ReportBuilder
             lookup.AddRange(kv.Value);
         }
 
-        // 5. Extract + filter edges for each surviving node.
-        //
-        // Extraction is embarrassingly parallel: each node's outgoing edges are
-        // independent of every other node's, and Roslyn's Compilation/SemanticModel
-        // are thread-safe for read operations. We pre-allocate a result slot per
-        // surviving node and write by index (no locking, each index touched once),
-        // which preserves output order deterministically.
-        var rollupToType = options.Granularity == Granularity.Type;
-        var slots = new NodeEdges?[surviving.Count];
-        var emptyCount = 0;
-        var processed = 0;
+        // 5. Analyze report nodes and, if requested, their reachable dependencies.
+        var analyzer = new DependencyAnalyzer(
+            _extractor, lookup,
+            options.Exclude.Count == 0 ? null : NodeFilter.CreateExclusionPredicate(options.Exclude));
+        var (allDirectEdges, allFinalEdges) = await analyzer.ComputeAsync(
+            surviving.Select(n => n.Context).ToList(),
+            options.IncludeSystem,
+            options.ExcludeSelf,
+            options.Granularity,
+            options.Transitive,
+            ct).ConfigureAwait(false);
 
-        var progress = new ProgressReporter();
-        Console.Error.WriteLine($"Extracting dependencies for {surviving.Count} node(s)...");
-        await Parallel.ForEachAsync(
-            Enumerable.Range(0, surviving.Count),
-            new ParallelOptions
-            {
-                CancellationToken = ct,
-                MaxDegreeOfParallelism = Environment.ProcessorCount,
-            },
-            async (i, token) =>
-            {
-                var fn = surviving[i];
-                var symbol = fn.Context.Symbol;
-
-                var scope = symbol.Kind == Microsoft.CodeAnalysis.SymbolKind.NamedType
-                    ? ExtractionScope.RolledUpType
-                    : ExtractionScope.PerMember;
-
-                var extracted = await _extractor.ExtractAsync(fn.Context, scope, token).ConfigureAwait(false);
-                var (t, m) = DependencyFilter.ApplyEdges(
-                    extracted, symbol, options.IncludeSystem, options.ExcludeSelf, rollupToType);
-
-                var edges = new NodeEdges(Types: t, Members: m);
-
-                var done = Interlocked.Increment(ref processed);
-                progress.Report(done - 1, surviving.Count, fn.FullyQualifiedName);
-
-                if (t.Count == 0 && m.Count == 0)
-                {
-                    Interlocked.Increment(ref emptyCount);
-                    if (!options.IncludeEmpty)
-                    {
-                        return;
-                    }
-                }
-
-                slots[i] = edges;
-            }).ConfigureAwait(false);
-
-        // Collect non-null slots in original order.
         var nodesWithDirectEdges = new List<(SymbolContext Node, NodeEdges DirectEdges)>(surviving.Count);
-        for (var i = 0; i < slots.Length; i++)
+        var finalEdges = new List<NodeEdges>(surviving.Count);
+        var emptyCount = 0;
+        for (var i = 0; i < surviving.Count; i++)
         {
-            if (slots[i] is { } edges)
+            var directEdges = allDirectEdges[i];
+            if (directEdges.Types.Count == 0 && directEdges.Members.Count == 0)
             {
-                nodesWithDirectEdges.Add((surviving[i].Context, edges));
+                emptyCount++;
+                if (!options.IncludeEmpty)
+                {
+                    continue;
+                }
             }
+
+            nodesWithDirectEdges.Add((surviving[i].Context, directEdges));
+            finalEdges.Add(allFinalEdges[i]);
         }
 
-        progress.Complete($"Extracted {nodesWithDirectEdges.Count} node(s) with edges.");
-
-        // 6. Transitive closure (if requested).
-        IReadOnlyList<NodeEdges> finalEdges;
+        // 6. Count edges.
         int transitiveEdgeCount;
         if (options.Transitive)
         {
-            var closure = new TransitiveClosure(_extractor, lookup);
-            finalEdges = await closure.ComputeAsync(nodesWithDirectEdges, options.IncludeSystem, ct).ConfigureAwait(false);
             transitiveEdgeCount = finalEdges.Sum(e => e.Types.Count(d => !d.Direct) + e.Members.Count(d => !d.Direct));
         }
         else
         {
-            finalEdges = nodesWithDirectEdges.Select(x => x.DirectEdges).ToList();
             transitiveEdgeCount = 0;
         }
 
@@ -149,19 +113,29 @@ public sealed class ReportBuilder
         for (var i = 0; i < nodesWithDirectEdges.Count; i++)
         {
             var (ctx, _) = nodesWithDirectEdges[i];
-            var symbol = ctx.Symbol;
-            nodes.Add(new DependencyNode
+            nodes.Add(CreateNode(ctx.Symbol, finalEdges[i]));
+        }
+
+        var bodyDependencies = new List<DependencyNode>();
+        if (options.Transitive)
+        {
+            var emittedIds = nodes.Select(n => n.Id).ToHashSet();
+            var dependencies = finalEdges
+                .SelectMany(e => e.Types.Concat(e.Members))
+                .Where(d => !d.IsExternal && (options.Granularity switch
+                {
+                    Granularity.Member => d.Kind != Models.SymbolKind.Type,
+                    Granularity.Type => d.Kind == Models.SymbolKind.Type,
+                    _ => true,
+                }))
+                .OrderBy(d => d.Id, StringComparer.Ordinal);
+            foreach (var dependency in dependencies)
             {
-                Id = SymbolId.Create(symbol),
-                Name = symbol.Name,
-                Kind = ToModelKind(symbol),
-                ContainingType = symbol.ContainingType?.Name,
-                Namespace = symbol.ContainingNamespace?.IsGlobalNamespace == true
-                    ? ""
-                    : symbol.ContainingNamespace?.ToDisplayString() ?? "",
-                Location = ToSourceLocation(symbol),
-                Edges = finalEdges[i],
-            });
+                if (emittedIds.Add(dependency.Id) && lookup.TryGet(dependency.Id, out var context))
+                {
+                    bodyDependencies.Add(CreateNode(context.Symbol, new NodeEdges([], [])));
+                }
+            }
         }
 
         // 8. Summary.
@@ -186,6 +160,7 @@ public sealed class ReportBuilder
             Options = options,
             Source = new ReportSource { Path = sourcePath, Kind = sourceKind },
             Nodes = nodes,
+            BodyDependencies = bodyDependencies,
             Summary = new ReportSummary
             {
                 NodeCount = nodes.Count,
@@ -199,18 +174,26 @@ public sealed class ReportBuilder
         };
     }
 
-    private static string FullyQualifiedName(ISymbol symbol)
+    private static DependencyNode CreateNode(ISymbol symbol, NodeEdges edges) => new()
     {
-        if (symbol.ContainingType is not null)
+        Id = SymbolId.Create(symbol),
+        Name = symbol.Name,
+        Kind = ToModelKind(symbol),
+        ContainingType = symbol.ContainingType?.Name,
+        Namespace = symbol.ContainingNamespace?.IsGlobalNamespace == true
+            ? ""
+            : symbol.ContainingNamespace?.ToDisplayString() ?? "",
+        Location = ToSourceLocation(symbol),
+        Edges = edges,
+        Declarations = symbol switch
         {
-            return $"{FullyQualifiedName(symbol.ContainingType)}.{symbol.Name}";
-        }
-        if (symbol.ContainingNamespace is { IsGlobalNamespace: false } ns)
-        {
-            return $"{ns.ToDisplayString()}.{symbol.Name}";
-        }
-        return symbol.Name;
-    }
+            IMethodSymbol { PartialImplementationPart: { } implementation } =>
+                symbol.DeclaringSyntaxReferences.AddRange(implementation.DeclaringSyntaxReferences),
+            IPropertySymbol { PartialImplementationPart: { } implementation } =>
+                symbol.DeclaringSyntaxReferences.AddRange(implementation.DeclaringSyntaxReferences),
+            _ => symbol.DeclaringSyntaxReferences,
+        },
+    };
 
     private static Models.SymbolKind ToModelKind(ISymbol symbol)
     {

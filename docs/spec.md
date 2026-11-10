@@ -57,13 +57,18 @@ With no options beyond the input path, the application:
 
 `--include <glob>` and `--exclude <glob>` (each repeatable).
 
-- Apply to the **reported nodes** only — the symbols whose outgoing edges are
-  emitted. They do **not** affect edge targets.
+- `--include` applies to the **reported nodes** only — the symbols whose outgoing
+  edges are emitted. It does **not** affect edge targets or transitive traversal.
 - Default (no flags): all source symbols are included.
 - `--include` narrows to only matching symbols; multiple `--include` patterns
   are combined with OR.
-- `--exclude` removes matching symbols and is applied after `--include`;
-  `--exclude` wins on conflict.
+- `--exclude` removes matching symbols from reported nodes and all edge targets,
+  prevents their transitive analysis, and skips matching members in rolled-up
+  type extraction. It is applied after `--include` and wins on conflict.
+  Exclusions apply even without `--transitive` or with `--include-system`.
+  Excluding a property or event also excludes its associated accessors and backing field.
+  An exact type pattern does not exclude separately named members; use
+  `Namespace.Type*` to match both.
 - Patterns are globs (`*` = any sequence, `?` = single character), matched
   case-sensitively against the symbol's fully-qualified name
   (`Namespace.Type` or `Namespace.Type.Member`).
@@ -78,8 +83,8 @@ yields a "your code only" report.
 `--include-system` disables this restriction, allowing framework types,
 primitives, and all external/metadata symbols to appear as edge targets.
 
-> `--include`/`--exclude` never affect targets — only `--include-system`
-> controls target visibility.
+> `--include` never affects targets. `--exclude` removes matching targets even
+> when `--include-system` is enabled.
 
 ## 7. Self-reference filtering
 
@@ -99,6 +104,11 @@ primitives, and all external/metadata symbols to appear as edge targets.
 - By default, only **direct** edges are reported.
 - `--transitive` computes the full transitive closure: for each dependency
   target, its own dependencies are also followed and added to the report.
+- With `--granularity member`, only member targets are expanded. Type targets
+  remain in the report but are not expanded into their members' dependencies.
+  Referenced methods, constructors, properties, fields, and events are followed
+  transitively through their own signatures and bodies/initializers.
+  The `type` and `both` modes retain rolled-up type expansion.
 - The closure is cycle-safe.
 - Edges that are only reachable transitively (not direct) are flagged as such
   in the output.
@@ -113,14 +123,14 @@ primitives, and all external/metadata symbols to appear as edge targets.
 
 ## 10. Output formats
 
-`--format text|json|mermaid` (default: `text`).
+`--format text|json|mermaid|body` (default: `text`).
 
 ### 10.1 Text
 
-- One section per emitted node, listing its edges grouped under `types:` and
-  `members:`.
-- Each edge line shows the target name, kind, namespace, and the source
-  location(s) where it is referenced.
+- One section per emitted node, listing its edges grouped under `types:`,
+  `methods:`, `properties:`, `fields:`, and `events:`.
+- Member edge lines show the fully qualified member name; each edge line also
+  shows the target kind, namespace, and reference count.
 - `(none)` is shown where a group is empty.
 - A summary line gives node/edge counts.
 
@@ -235,7 +245,7 @@ pasting into Markdown renderers that support fenced `mermaid` code blocks
   - Direct edges: `n0 --> n1`.
   - Transitive edges (`direct: false`, only with `--transitive`): `n0 -.->|transitive| n1`.
 - Edge targets that are themselves emitted nodes link to that node. Edge targets
-  that are **not** emitted (filtered out by `--include`/`--exclude`, omitted as
+  that are **not** emitted (filtered out by `--include`, omitted as
   empty, or external when `--include-system` is set) are rendered as standalone
   plain-rectangle nodes (`t0["..."]`) so no edge is silently dropped.
 - Edges are deduplicated on `(source, target, direct)`: if a node references the
@@ -246,6 +256,34 @@ pasting into Markdown renderers that support fenced `mermaid` code blocks
   because they contain characters that are unsafe in Mermaid node ids.
 - The diagram is preceded by `%%` comment lines echoing the tool, source, and
   summary counts.
+
+### 10.4 Body
+
+- Each emitted source declaration is rendered as
+  `// <id>, <source-file>, <start-line>-<end-line>`, immediately followed on the next
+  line by the full declaration (signature and body), then a blank line.
+  Headers include the full symbol id and no blank line precedes the declaration.
+- File names omit the directory; line ranges are inclusive and 1-based and cover
+  the declaration, excluding leading/trailing trivia.
+- Member granularity emits only member declarations, never enclosing classes.
+  Type nodes emit complete type declarations.
+- Partial declarations, including partial member implementations, produce
+  separate sections with their own file/line headers.
+- Fields and field-like events include the enclosing declaration, preserving
+  modifiers, declared type, and initializers (including other variables in a
+  shared declaration).
+- Symbols without an explicit declaration body, including implicit/primary
+  constructors whose syntax refers to an enclosing type, produce no section.
+- Node filters and empty-node omission apply to roots as in other formats.
+  With `--transitive`, also emit reachable source dependencies (direct and
+  transitive), including leaf dependencies and targets outside the root filters.
+  Member mode includes only member dependencies; type mode includes only type
+  dependencies; both mode includes both. Roots appear first, followed by
+  dependencies ordered by symbol id (ordinal), with each symbol emitted once
+  apart from its separate partial declarations. External targets have no body.
+  Without `--transitive`, only emitted roots are printed.
+- There is no report preamble, edge list, or summary in this format. Other formats
+  retain their existing root-node and edge representations.
 
 ## 11. CLI summary
 
@@ -260,7 +298,7 @@ Options:
   --include-system                 Allow framework/external edge targets.
   --exclude-self                   Drop sibling members + containing type (member nodes).
   --include-empty                  Emit nodes with no edges.
-  --format text|json|mermaid       Default: text.
+  --format text|json|mermaid|body  Default: text.
   --help
 ```
 

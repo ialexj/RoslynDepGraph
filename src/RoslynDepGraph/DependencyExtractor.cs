@@ -59,7 +59,8 @@ public sealed class DependencyExtractor
     public async Task<ExtractedDependencies> ExtractAsync(
         SymbolContext nodeContext,
         ExtractionScope scope,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<ISymbol, bool>? isExcluded = null)
     {
         var symbol = nodeContext.Symbol;
         var project = nodeContext.Project;
@@ -81,10 +82,10 @@ public sealed class DependencyExtractor
         switch (scope)
         {
             case ExtractionScope.RolledUpType:
-                await ExtractRolledUpTypeAsync(symbol, collector, ct).ConfigureAwait(false);
+                await ExtractRolledUpTypeAsync(symbol, collector, isExcluded, ct).ConfigureAwait(false);
                 break;
             case ExtractionScope.PerMember:
-                await ExtractPerMemberAsync(symbol, collector, ct).ConfigureAwait(false);
+                await ExtractPerMemberAsync(symbol, collector, isExcluded, ct).ConfigureAwait(false);
                 break;
         }
 
@@ -104,7 +105,8 @@ public sealed class DependencyExtractor
     }
 
     private static async Task ExtractRolledUpTypeAsync(
-        ISymbol symbol, ReferenceCollector collector, CancellationToken ct)
+        ISymbol symbol, ReferenceCollector collector,
+        Func<ISymbol, bool>? isExcluded, CancellationToken ct)
     {
         if (symbol is not INamedTypeSymbol type)
         {
@@ -121,20 +123,20 @@ public sealed class DependencyExtractor
             }
 
             // Declaration-level: base list, constraints, attributes, declared types of fields/properties/events.
-            var declWalker = new DeclarationWalker(collector);
+            var declWalker = new DeclarationWalker(collector, isExcluded);
             declWalker.Visit(typeDecl);
 
             // Plus every member's signature + body.
             foreach (var member in type.GetMembers())
             {
-                if (!SymbolEnumerator.IsReportableMember(member))
+                if (!SymbolEnumerator.IsReportableMember(member) || isExcluded?.Invoke(member) == true)
                 {
                     continue;
                 }
                 foreach (var memberRef in member.DeclaringSyntaxReferences)
                 {
                     var memberSyntax = await memberRef.GetSyntaxAsync(ct).ConfigureAwait(false);
-                    var memberWalker = new MemberBodyWalker(collector);
+                    var memberWalker = new MemberBodyWalker(collector, isExcluded);
                     memberWalker.Visit(memberSyntax);
                 }
             }
@@ -142,7 +144,8 @@ public sealed class DependencyExtractor
     }
 
     private static async Task ExtractPerMemberAsync(
-        ISymbol symbol, ReferenceCollector collector, CancellationToken ct)
+        ISymbol symbol, ReferenceCollector collector,
+        Func<ISymbol, bool>? isExcluded, CancellationToken ct)
     {
         foreach (var declRef in symbol.DeclaringSyntaxReferences)
         {
@@ -159,7 +162,7 @@ public sealed class DependencyExtractor
                     ?? syntax;
             }
 
-            var walker = new MemberBodyWalker(collector);
+            var walker = new MemberBodyWalker(collector, isExcluded);
             walker.Visit(syntax);
         }
     }
@@ -195,6 +198,26 @@ internal sealed class ReferenceCollector
     private readonly Dictionary<string, CollectedSymbol> _members = new();
 
     public ReferenceCollector(Compilation compilation) => _compilation = compilation;
+
+    public bool IsExcludedDeclaration(SyntaxNode node, Func<ISymbol, bool>? isExcluded)
+    {
+        if (isExcluded is null || node is not (MemberDeclarationSyntax or VariableDeclaratorSyntax))
+        {
+            return false;
+        }
+
+        var model = _compilation.GetSemanticModel(node.SyntaxTree);
+        var symbol = model.GetDeclaredSymbol(node);
+        if (symbol is not null && isExcluded(symbol))
+        {
+            return true;
+        }
+
+        // Field declarations can share a type and attributes across several variables.
+        return node is BaseFieldDeclarationSyntax field &&
+            field.Declaration.Variables.All(v =>
+                model.GetDeclaredSymbol(v) is { } variable && isExcluded(variable));
+    }
 
     public ExtractedDependencies Build() => new()
     {
@@ -322,15 +345,23 @@ internal sealed class ReferenceCollector
 internal sealed class DeclarationWalker : CSharpSyntaxWalker
 {
     private readonly ReferenceCollector _collector;
+    private readonly Func<ISymbol, bool>? _isExcluded;
 
-    public DeclarationWalker(ReferenceCollector collector)
+    public DeclarationWalker(
+        ReferenceCollector collector, Func<ISymbol, bool>? isExcluded)
         : base(SyntaxWalkerDepth.StructuredTrivia)
     {
         _collector = collector;
+        _isExcluded = isExcluded;
     }
 
     public override void Visit(SyntaxNode? node)
     {
+        if (node is not null && _collector.IsExcludedDeclaration(node, _isExcluded))
+        {
+            return;
+        }
+
         // For declaration scope, only consider type syntax (base list, constraints, declared types)
         // and attributes. Member bodies are walked separately by MemberBodyWalker.
         if (node is TypeSyntax or AttributeSyntax)
@@ -348,15 +379,22 @@ internal sealed class DeclarationWalker : CSharpSyntaxWalker
 internal sealed class MemberBodyWalker : CSharpSyntaxWalker
 {
     private readonly ReferenceCollector _collector;
+    private readonly Func<ISymbol, bool>? _isExcluded;
 
-    public MemberBodyWalker(ReferenceCollector collector)
+    public MemberBodyWalker(ReferenceCollector collector, Func<ISymbol, bool>? isExcluded)
     {
         _collector = collector;
+        _isExcluded = isExcluded;
     }
 
     // Visit all nodes; the collector decides what's a type/member reference.
     public override void Visit(SyntaxNode? node)
     {
+        if (node is not null && _collector.IsExcludedDeclaration(node, _isExcluded))
+        {
+            return;
+        }
+
         if (node is ExpressionSyntax or TypeSyntax or AttributeSyntax)
         {
             _collector.Consider(node);

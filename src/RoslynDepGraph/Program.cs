@@ -85,6 +85,7 @@ internal static class Program
             {
                 OutputFormat.Json => OutputFormatter.ToJson(report),
                 OutputFormat.Mermaid => OutputFormatter.ToMermaid(report),
+                OutputFormat.Body => await OutputFormatter.ToBodyAsync(report, ct).ConfigureAwait(false),
                 _ => OutputFormatter.ToText(report),
             };
 

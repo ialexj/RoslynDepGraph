@@ -32,7 +32,7 @@ public static class CliOptions
 
     public static readonly Option<string[]> ExcludeOption = new("--exclude")
     {
-        Description = "Glob pattern to exclude reported nodes by fully-qualified name (repeatable).",
+        Description = "Glob pattern to exclude symbols from the graph and dependency analysis by fully-qualified name (repeatable).",
         AllowMultipleArgumentsPerToken = true,
     };
 
@@ -58,7 +58,7 @@ public static class CliOptions
 
     public static readonly Option<OutputFormat> FormatOption = new("--format")
     {
-        Description = "Output format: text (default), json, or mermaid.",
+        Description = "Output format: text (default), json, mermaid, or body.",
         DefaultValueFactory = _ => OutputFormat.Text,
         CustomParser = ParseOutputFormat,
     };
@@ -100,6 +100,7 @@ public static class CliOptions
         {
             "json" => OutputFormat.Json,
             "mermaid" => OutputFormat.Mermaid,
+            "body" => OutputFormat.Body,
             "text" => OutputFormat.Text,
             _ => OutputFormat.Text,
         };

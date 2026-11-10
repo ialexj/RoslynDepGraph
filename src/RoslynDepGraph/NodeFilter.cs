@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
 
 namespace RoslynDepGraph;
 
@@ -26,7 +27,7 @@ public static class NodeFilter
         IReadOnlyList<string> excludes)
     {
         var includeRegexes = includes.Select(GlobToRegex).ToList();
-        var excludeRegexes = excludes.Select(GlobToRegex).ToList();
+        var isExcluded = CreateExclusionPredicate(excludes);
 
         var surviving = new List<FilteredNode>();
         var removed = 0;
@@ -43,7 +44,7 @@ public static class NodeFilter
             }
 
             // Exclude filter: if the name matches any exclude pattern, drop it.
-            if (excludeRegexes.Any(r => r.IsMatch(name)))
+            if (isExcluded(node.Context.Symbol))
             {
                 removed++;
                 continue;
@@ -53,6 +54,44 @@ public static class NodeFilter
         }
 
         return (surviving, removed);
+    }
+
+    internal static Func<ISymbol, bool> CreateExclusionPredicate(IReadOnlyList<string> excludes)
+    {
+        var regexes = excludes.Select(GlobToRegex).ToArray();
+        if (regexes.Length == 0)
+        {
+            return _ => false;
+        }
+        return symbol =>
+        {
+            var associated = symbol switch
+            {
+                IMethodSymbol method => method.AssociatedSymbol,
+                IFieldSymbol field => field.AssociatedSymbol,
+                _ => null,
+            };
+            return Matches(symbol) || associated is not null && Matches(associated);
+        };
+
+        bool Matches(ISymbol symbol)
+        {
+            var name = FullyQualifiedName(symbol);
+            return regexes.Any(r => r.IsMatch(name));
+        }
+    }
+
+    internal static string FullyQualifiedName(ISymbol symbol)
+    {
+        if (symbol.ContainingType is not null)
+        {
+            return $"{FullyQualifiedName(symbol.ContainingType)}.{symbol.Name}";
+        }
+        if (symbol.ContainingNamespace is { IsGlobalNamespace: false } ns)
+        {
+            return $"{ns.ToDisplayString()}.{symbol.Name}";
+        }
+        return symbol.Name;
     }
 
     /// <summary>

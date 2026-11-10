@@ -10,9 +10,9 @@ using Xunit;
 namespace RoslynDepGraph.Tests;
 
 /// <summary>
-/// Tests for the --transitive closure (TransitiveClosure.ComputeAsync): a per-node
-/// BFS with a visited set keyed by Dependency.Id, cycle-safe, flagging newly-
-/// discovered edges with Direct=false. Direct edges win on dedup.
+/// Tests for --transitive closure: reachable dependencies are expanded per report
+/// node, cycle-safe, and newly discovered edges are flagged Direct=false.
+/// Direct edges win on dedup.
 /// </summary>
 public class TransitiveClosureTests
 {
@@ -116,5 +116,65 @@ public class TransitiveClosureTests
         var selfTransitive = a.Edges.Types.FirstOrDefault(d => d.Name == "A");
         Assert.NotNull(selfTransitive);
         Assert.False(selfTransitive!.Direct);
+    }
+
+    [Fact]
+    public async Task Member_closure_keeps_type_only_references_without_expanding_them()
+    {
+        var report = await BuildMemberClosureAsync(Granularity.Member, "Entry.TypeOnly");
+        var node = Assert.Single(report.Nodes);
+
+        var service = Assert.Single(node.Edges.Types);
+        Assert.Equal("Service", service.Name);
+        Assert.True(service.Direct);
+        Assert.Empty(node.Edges.Members);
+        Assert.Equal(0, report.Summary.TransitiveEdges);
+    }
+
+    [Theory]
+    [InlineData("Call", "Used", "Finish")]
+    [InlineData("Read", "Value", "Result")]
+    [InlineData("Create", ".ctor", "Finish")]
+    public async Task Member_closure_follows_referenced_members_not_unrelated_members(
+        string entry, string directMember, string transitiveMember)
+    {
+        var report = await BuildMemberClosureAsync(Granularity.Member, $"Entry.{entry}");
+        var node = Assert.Single(report.Nodes);
+
+        Assert.Contains(node.Edges.Types, d => d.Name == "Service" && d.Direct);
+        Assert.Contains(node.Edges.Members, d => d.Name == directMember && d.Direct);
+        Assert.Contains(node.Edges.Members, d => d.Name == transitiveMember && !d.Direct);
+        Assert.DoesNotContain(node.Edges.Types, d => d.Name == "Noise");
+        Assert.DoesNotContain(node.Edges.Members, d => d.Name is "Unused" or "Explode");
+        Assert.Equal(ReportTestHarness.EdgeIds(node).Count,
+            ReportTestHarness.EdgeIds(node).Distinct().Count());
+    }
+
+    [Theory]
+    [InlineData(Granularity.Type, "Entry")]
+    [InlineData(Granularity.Both, "Entry.TypeOnly")]
+    public async Task Type_and_both_closures_still_expand_referenced_types(
+        Granularity granularity, string include)
+    {
+        var report = await BuildMemberClosureAsync(granularity, include);
+        var node = Assert.Single(report.Nodes);
+
+        Assert.Contains(node.Edges.Types, d => d.Name == "Noise" && !d.Direct);
+        Assert.Contains(node.Edges.Members, d => d.Name == "Explode" && !d.Direct);
+    }
+
+    private static async Task<DependencyReport> BuildMemberClosureAsync(
+        Granularity granularity, string include)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var solution = await ReportTestHarness.LoadFixtureAsync("MemberClosureFixture", cts.Token);
+        var options = ReportTestHarness.DefaultOptions() with
+        {
+            Granularity = granularity,
+            Transitive = true,
+            Include = new[] { include },
+        };
+        return await ReportTestHarness.BuildForFixtureAsync(
+            "MemberClosureFixture", solution, options, cts.Token);
     }
 }

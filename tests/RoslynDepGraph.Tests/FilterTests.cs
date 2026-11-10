@@ -14,8 +14,8 @@ namespace RoslynDepGraph.Tests;
 /// NodeFilter.Select). Globs are anchored (^...$), case-sensitive, with
 /// '*' -> '.*' (matches any sequence including dots) and '?' -> '.'. A literal
 /// '.' in the glob is regex-escaped to '\.', so "B.*" matches "B.M" but not "B".
-/// Include/exclude apply to REPORTED NODES only and do NOT narrow edge targets
-/// (spec sections 5 and 6).
+/// Include applies only to reported nodes; exclude also removes dependency targets
+/// and prevents transitive analysis (spec sections 5 and 6).
 /// </summary>
 public class FilterTests
 {
@@ -70,10 +70,10 @@ public class FilterTests
     }
 
     [Fact]
-    public async Task Exclude_B_removes_node_but_keeps_it_as_edge_target()
+    public async Task Exclude_B_removes_type_but_not_its_separately_named_members()
     {
         // Excluding B removes it from reported nodes, but B.member and B.M still
-        // reference A (and each other) as edge targets -- filters do not narrow targets.
+        // reference A (and each other) as non-excluded edge targets.
         var options = ReportTestHarness.DefaultOptions() with { Exclude = new[] { "B" } };
         var report = await BuildAsync(options);
 

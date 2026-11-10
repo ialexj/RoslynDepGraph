@@ -2,6 +2,7 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Collections.Generic;
+using Microsoft.CodeAnalysis;
 
 namespace RoslynDepGraph.Models;
 
@@ -17,6 +18,8 @@ public sealed record DependencyNode
     public required string Namespace { get; init; }
     public required SourceLocation Location { get; init; }
     public required NodeEdges Edges { get; init; }
+
+    internal IReadOnlyList<SyntaxReference> Declarations { get; init; } = [];
 }
 
 public sealed record NodeEdges(IReadOnlyList<Dependency> Types, IReadOnlyList<Dependency> Members);

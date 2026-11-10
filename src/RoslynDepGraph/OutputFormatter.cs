@@ -6,12 +6,15 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using RoslynDepGraph.Models;
 
 namespace RoslynDepGraph;
 
 /// <summary>
-/// Formats a <see cref="DependencyReport"/> as text or JSON.
+/// Formats a <see cref="DependencyReport"/> as text, JSON, Mermaid, or source bodies.
 /// </summary>
 public static class OutputFormatter
 {
@@ -77,11 +80,36 @@ public static class OutputFormatter
             $"[{node.Id}] ({kind}{containing}, {ns})");
 
         WriteEdgeGroup(writer, "types", node.Edges.Types);
-        WriteEdgeGroup(writer, "members", node.Edges.Members);
+        WriteMemberEdgeGroup(writer, "methods", node.Edges.Members, SymbolKind.Method);
+        WriteMemberEdgeGroup(writer, "properties", node.Edges.Members, SymbolKind.Property);
+        WriteMemberEdgeGroup(writer, "fields", node.Edges.Members, SymbolKind.Field);
+        WriteMemberEdgeGroup(writer, "events", node.Edges.Members, SymbolKind.Event);
         writer.WriteLine();
     }
 
     private static void WriteEdgeGroup(TextWriter writer, string label, System.Collections.Generic.IReadOnlyList<Dependency> edges)
+    {
+        WriteEdgeGroup(writer, label, edges, fullyQualifiedNames: false);
+    }
+
+    private static void WriteMemberEdgeGroup(
+        TextWriter writer,
+        string label,
+        System.Collections.Generic.IReadOnlyList<Dependency> edges,
+        SymbolKind kind)
+    {
+        WriteEdgeGroup(
+            writer,
+            label,
+            edges.Where(edge => edge.Kind == kind).ToArray(),
+            fullyQualifiedNames: true);
+    }
+
+    private static void WriteEdgeGroup(
+        TextWriter writer,
+        string label,
+        System.Collections.Generic.IReadOnlyList<Dependency> edges,
+        bool fullyQualifiedNames)
     {
         if (edges.Count == 0)
         {
@@ -103,13 +131,49 @@ public static class OutputFormatter
             };
             var directTag = dep.Direct ? "" : " [transitive]";
             writer.WriteLine(
-                $"    {dep.Name}  ({kind}, {ns}{refTag}){directTag}");
+                $"    {(fullyQualifiedNames ? dep.Id : dep.Name)}  ({kind}, {ns}{refTag}){directTag}");
         }
     }
 
     public static string ToJson(DependencyReport report)
     {
         return JsonSerializer.Serialize(report, JsonOptions);
+    }
+
+    public static async Task<string> ToBodyAsync(
+        DependencyReport report, CancellationToken ct = default)
+    {
+        using var writer = new StringWriter();
+        foreach (var node in report.Nodes.Concat(report.BodyDependencies))
+        {
+            ct.ThrowIfCancellationRequested();
+            foreach (var declaration in node.Declarations)
+            {
+                var syntax = await declaration.GetSyntaxAsync(ct).ConfigureAwait(false);
+                // Primary constructors can point at their enclosing type declaration.
+                if (node.Kind != SymbolKind.Type &&
+                    syntax is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax)
+                {
+                    continue;
+                }
+
+                if (syntax is VariableDeclaratorSyntax)
+                {
+                    syntax = syntax.FirstAncestorOrSelf<FieldDeclarationSyntax>()
+                        ?? syntax.FirstAncestorOrSelf<EventFieldDeclarationSyntax>()
+                        ?? syntax;
+                }
+
+                var lines = syntax.GetLocation().GetLineSpan();
+                writer.WriteLine(
+                    $"// {node.Id}, {Path.GetFileName(lines.Path)}, "
+                    + $"{lines.StartLinePosition.Line + 1}-{lines.EndLinePosition.Line + 1}");
+                writer.WriteLine(syntax.ToString());
+                writer.WriteLine();
+            }
+        }
+
+        return writer.ToString();
     }
 
     /// <summary>
